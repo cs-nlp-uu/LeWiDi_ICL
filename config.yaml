@@ -1,0 +1,23 @@
+dataset_names: ["CSC", "MP", "Paraphrase", "VariErrNLI"]
+task_description:
+  CSC: sarcasm detection
+  MP: irony detection
+  Paraphrase: paraphrase detection
+  VariErrNLI: natural language inference
+data:
+  CSC:
+    train_file: ${PROJECT_ROOT}/data/data_evaluation_phase/CSC/CSC_train.json
+    dev_file: ${PROJECT_ROOT}/data/data_evaluation_phase/CSC/CSC_dev.json
+    test_file: ${PROJECT_ROOT}/data/data_evaluation_phase/CSC/CSC_test_clear.json
+  MP:
+    train_file: ${PROJECT_ROOT}/data/data_evaluation_phase/MP/MP_train.json
+    dev_file: ${PROJECT_ROOT}/data/data_evaluation_phase/MP/MP_dev.json
+    test_file: ${PROJECT_ROOT}/data/data_evaluation_phase/MP/MP_test_clear.json
+  Paraphrase:
+    train_file: ${PROJECT_ROOT}/data/data_evaluation_phase/Paraphrase/Paraphrase_train.json
+    dev_file: ${PROJECT_ROOT}/data/data_evaluation_phase/Paraphrase/Paraphrase_dev.json
+    test_file: ${PROJECT_ROOT}/data/data_evaluation_phase/Paraphrase/Paraphrase_test_clear.json
+  VariErrNLI:
+    train_file: ${PROJECT_ROOT}/data/data_evaluation_phase/VariErrNLI/VariErrNLI_train.json
+    dev_file: ${PROJECT_ROOT}/data/data_evaluation_phase/VariErrNLI/VariErrNLI_dev.json
+    test_file: ${PROJECT_ROOT}/data/data_evaluation_phase/VariErrNLI/VariErrNLI_test_clear.json

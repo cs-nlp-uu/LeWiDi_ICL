@@ -5,6 +5,8 @@
 data/
 evaluation/
 res/
+predictions/
+logs/
 
 ### JupyterNotebooks ###
 # gitignore template for Jupyter Notebooks

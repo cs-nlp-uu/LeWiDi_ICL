@@ -157,7 +157,7 @@ def soft_label_evaluation(dataset,targets,predictions):
     return(average_MD(targets,predictions))
   elif dataset == 'VEN' or dataset =='VariErrNLI' or dataset =='varierrnli':
     return(multilabel_average_MD(targets,predictions))
-  elif dataset =="Par" or dataset =="par"  or dataset =="CSC" or dataset =="csc"  : # par and csc use the same soft labels evaluation functions
+  elif dataset =="Par" or dataset =="par" or dataset == "Paraphrase" or dataset =="CSC" or dataset =="csc"  : # par and csc use the same soft labels evaluation functions
     return(average_WS(targets,predictions))
 
 
@@ -168,7 +168,7 @@ def perspectivist_evaluation(dataset,targets,predictions):
     return(error_rate(targets,predictions))
   elif dataset == 'VEN' or dataset =='VariErrNLI' or dataset =='varierrnli':
     return(multilabel_error_rate(targets,predictions))
-  elif dataset =="Par" or dataset =='par':
+  elif dataset =="Par" or dataset =='par' or dataset == "Paraphrase":
     return(mean_absolute_distance(targets,predictions,11))
   elif dataset =="CSC" or dataset =='csc':
     return(mean_absolute_distance(targets,predictions,6))

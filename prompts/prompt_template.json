@@ -1,0 +1,36 @@
+{
+    "version": "1.0",
+    "content": {
+        "introduction": "You are an expert in guessing my response against a ${TASK_NAME} task.",
+        "task_description": "Your task is to analyze and predict my response to ${INPUT_FORMAT} between <<< and >>>, and label it with ${RESPONSE_FORMAT} ${LABEL_EXPLANATION}.",
+        "style": "You should reply with only the label without any additional text.",
+        "examples": "Here are some of my previous responses:\n${EXAMPLES}",
+        "input": "<<<\n${INPUT}\n>>>"
+    },
+    "datasets": {
+        "CSC": {
+            "task_name": "sarcasn detecton",
+            "input_format": "a pair of context and response",
+            "response_format": "an integer from 0 to 5",
+            "label_explanation": "where 0 means not sarcastic at all and 6 means completely sarcastic"
+        },
+        "MP": {
+            "task_name": "irony detection",
+            "input_format": "a pair of post and reply",
+            "response_format": "0 or 1",
+            "label_explanation": "where 0 means not ironic and 1 means ironic"
+        },
+        "Paraphrase": {
+            "task_name": "paraphrase quality assessment",
+            "input_format": "a pair of sentences",
+            "response_format": "an integer from -5 to 5",
+            "label_explanation": "where -5 indicates the lowest quality and 5 indicates the highest quality"
+        },
+        "VariErrNLI": {
+            "task_name": "natural language inference",
+            "input_format": "a pair of premise (context) and hypothesis (statement)",
+            "response_format": "one or more labels from {contradiction, neutral, entailment} (use a comma to separate multiple labels)",
+            "label_explanation": "to determine whether the hypothesis is true (entailment), false (contradiction), or neither (neutral) given the truth of the premise"
+        }
+    }
+}
