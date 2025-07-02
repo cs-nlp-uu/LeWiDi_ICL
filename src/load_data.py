@@ -66,11 +66,8 @@ def load_data (file_path, is_varierrnli=False, is_test=False):
     # initialize output variabiles
         annotators_pe = list()
         ids = list()
-        if is_test:
-            return ([], [], annotators_pe, ids, data)
-        else:
-            targets_soft = list()
-            targets_pe = list()
+        targets_soft = list()
+        targets_pe = list()
 
     # loop on each item
     for id_, content in data.items():
@@ -80,6 +77,9 @@ def load_data (file_path, is_varierrnli=False, is_test=False):
 
         # extract annotators of the item
         annotators_pe.append(content["annotators"].split(","))
+
+        if is_test:
+            continue
 
         # extract soft label of the item and append it to the targets' soft list
         soft_label = content.get("soft_label", {})

@@ -1,0 +1,27 @@
+{
+    "predictions_fp": {
+        "CSC": "predictions/pred_icl_CSC_dev_gpt-4o-mini_10_random_20250702_030318.json",
+        "MP": "predictions/pred_icl_MP_dev_gpt-4o-mini_10_random_20250702_025229.json",
+        "Paraphrase": "predictions/pred_icl_Paraphrase_dev_gpt-4o-mini_10_random_20250702_025439.json",
+        "VariErrNLI": "predictions/pred_icl_VariErrNLI_dev_gpt-4o-mini_10_random_20250702_025626.json"
+    },
+    "test_mode": "dev",
+    "datasets": {
+        "CSC": {
+            "soft_label_evaluation": 1.22088,
+            "perspectivist_evaluation": 0.24055555555555558
+        },
+        "MP": {
+            "soft_label_evaluation": 0.52049,
+            "perspectivist_evaluation": 0.42199999999999993
+        },
+        "Paraphrase": {
+            "soft_label_evaluation": 2.69696,
+            "perspectivist_evaluation": 0.1877272727272727
+        },
+        "VariErrNLI": {
+            "soft_label_evaluation": 0.56711,
+            "perspectivist_evaluation": 0.29444453333333337
+        }
+    }
+}
