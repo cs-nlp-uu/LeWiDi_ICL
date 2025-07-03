@@ -42,6 +42,8 @@ def main():
     out_dir = project_root / 'examples'
     out_dir.mkdir(exist_ok=True)
     for dataset_name in config['dataset_names']:
+        if dataset_name == "MP":
+            continue
         print(f'Processing {dataset_name}...')
         is_varierrnli = (dataset_name == 'VariErrNLI')
         # Load train split

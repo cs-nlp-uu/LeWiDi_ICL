@@ -1,7 +1,9 @@
-import pandas as pd
 import numpy as np
 import ot
-
+import json
+import os
+import datetime
+from pathlib import Path
 
 def average_MD(targets, predictions):
     """
@@ -173,3 +175,179 @@ def perspectivist_evaluation(dataset,targets,predictions):
   elif dataset =="CSC" or dataset =='csc':
     return(mean_absolute_distance(targets,predictions,6))
 
+
+def pe_to_soft_labels(dataset_name, predictions_pe):
+    """
+    Convert pe predictions to soft labels.
+    """
+    results = dict()
+
+    if dataset_name == "CSC":
+        label_range = list(range(0, 7))
+    elif dataset_name == "MP":
+        label_range = [0, 1]
+    else:
+        label_range = list(range(-5, 6))
+    count = {k: 0 for k in label_range}
+    for k, v in predictions_pe.items():
+        for label in v:
+            count[label] += 1
+        total = sum(count.values())
+        soft_labels = [count[k] / total for k in label_range]
+        results[k] = soft_labels
+
+    return results
+
+
+def varierrnli_predictions_to_soft_labels_and_pe(predictions):
+    soft_labels = dict()
+    pe = dict()
+
+    labels = ["contradiction", "entailment", "neutral"]
+
+    for id, annotations in predictions.items():
+        num_annotators = len(annotations)
+        soft_label = {label: dict() for label in labels}
+        for label in labels:
+            count = sum(1
+                        for ann in annotations
+                        if label in [a.strip() for a in ann.split(',')])
+            p1 = count / num_annotators
+            p0 = 1 - p1
+            soft_label[label] = {"0": p0, "1": p1}
+
+        soft_labels[id] = soft_label
+        
+        # Initialize label vectors for each annotator
+        label_vectors = {label: [0] * num_annotators for label in labels}
+
+        # Fill in the label vectors
+        for i, annotation_str in enumerate(annotations):
+            for label in annotation_str.split(','):
+                label = label.strip()
+                if label in label_vectors:
+                    label_vectors[label][i] = 1
+
+        pe[id] = list(label_vectors.values())
+
+    return soft_labels, pe
+
+
+def evaluate_one_dataset(dataset_name, test_mode, full_data, predictions_soft_labels, predictions_pe):
+    """
+    Evaluate the predictions for a specific dataset and a specific list of entries.
+    """
+
+    selected_ids = list(predictions_pe.keys())
+
+    selected_positions = [idx for idx, _ in enumerate(full_data[dataset_name][test_mode]["ids"]) if _ in selected_ids]
+    
+    target_soft_labels = full_data[dataset_name][test_mode]["soft_labels"]
+    target_pe = full_data[dataset_name][test_mode]["perspectivism"]
+
+    selected_target_soft_labels = [item for idx, item in enumerate(target_soft_labels) if idx in selected_positions]
+    selected_target_pe = [item for idx, item in enumerate(target_pe) if idx in selected_positions]
+
+    if dataset_name != "VariErrNLI":
+        soft_label_evaluation_results = soft_label_evaluation(dataset_name, selected_target_soft_labels, list(predictions_soft_labels.values()))
+        perspectivist_evaluation_results = perspectivist_evaluation(dataset_name, selected_target_pe, list(predictions_pe.values()))
+    else:
+        soft_label_evaluation_results = soft_label_evaluation(dataset_name, selected_target_soft_labels, [
+           [
+               list(q.values()) for _, q in v.items()
+           ] for _, v in predictions_soft_labels.items()
+        ])
+        perspectivist_evaluation_results = perspectivist_evaluation(dataset_name, selected_target_pe, [v for _, v in predictions_pe.items()])
+
+    return {
+        "soft_label_evaluation": soft_label_evaluation_results,
+        "perspectivist_evaluation": perspectivist_evaluation_results
+    }
+
+
+def evaluate_all_datasets(preds_fp, test_mode, full_data):
+    """
+    Evaluate the predictions for all datasets.
+    """
+    results = {
+        "predictions_fp": preds_fp,
+        "test_mode": test_mode,
+        "datasets": dict()
+    }
+
+    for dataset_name in preds_fp:
+        if dataset_name != "VariErrNLI":
+            predictions_pe = json.load(open(os.path.join(os.getenv("PROJECT_ROOT"), preds_fp[dataset_name]), "r"))
+            predictions_soft_labels = pe_to_soft_labels(dataset_name, predictions_pe)
+        else:
+            predictions = json.load(open(os.path.join(os.getenv("PROJECT_ROOT"), preds_fp[dataset_name]), "r"))
+            predictions_soft_labels, predictions_pe = varierrnli_predictions_to_soft_labels_and_pe(predictions)
+
+        results["datasets"][dataset_name] = evaluate_one_dataset(dataset_name, test_mode, full_data, predictions_soft_labels, predictions_pe)
+
+    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    json.dump(results, open(os.path.join(os.getenv("PROJECT_ROOT"), f"metrics/metrics_{timestamp}.json"), "w"), indent=4)
+
+    return results
+
+
+def to_submission_format(pred_fps, timestamp):
+    for dataset_name, pred_fp in pred_fps.items():
+        if dataset_name != "VariErrNLI":
+            predictions_pe = json.load(open(os.path.join(os.getenv("PROJECT_ROOT"), pred_fp), "r"))
+            predictions_soft_labels = pe_to_soft_labels(dataset_name, predictions_pe)
+
+            with open(os.path.join(os.getenv("PROJECT_ROOT"), "submissions", timestamp, f"{dataset_name}_test_soft.tsv"), "w") as f:
+                for id, soft_labels in predictions_soft_labels.items():
+                    f.write(f"{id}\t" + str(soft_labels) + "\n")
+
+            with open(os.path.join(os.getenv("PROJECT_ROOT"), "submissions", timestamp, f"{dataset_name}_test_pe.tsv"), "w") as f:
+                for id, pe in predictions_pe.items():
+                    f.write(f"{id}\t" + str(pe) + "\n")
+        else:
+            predictions = json.load(open(os.path.join(os.getenv("PROJECT_ROOT"), pred_fp), "r"))
+            predictions_soft_labels, predictions_pe = varierrnli_predictions_to_soft_labels_and_pe(predictions)
+
+            with open(os.path.join(os.getenv("PROJECT_ROOT"), "submissions", timestamp, f"{dataset_name}_test_soft.tsv"), "w") as f:
+                for id, soft_labels in predictions_soft_labels.items():
+                    f.write(f"{id}\t" + str(
+                        [list(probs.values) for _, probs in soft_labels.items()]
+                    ) + "\n")
+
+            with open(os.path.join(os.getenv("PROJECT_ROOT"), "submissions", timestamp, f"{dataset_name}_test_pe.tsv"), "w") as f:
+                for id, pe in predictions_pe.items():
+                    f.write(f"{id}\t" + str(pe) + "\n")
+
+
+def to_submission_format(pred_fps):
+    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    
+    dir_path = Path(os.getenv("PROJECT_ROOT")) / "submissions" / timestamp
+    if not dir_path.exists():
+        dir_path.mkdir()
+
+    for dataset_name, pred_fp in pred_fps.items():
+        if dataset_name != "VariErrNLI":
+            predictions_pe = json.load(open(os.path.join(os.getenv("PROJECT_ROOT"), pred_fp), "r"))
+            predictions_soft_labels = pe_to_soft_labels(dataset_name, predictions_pe)
+
+            with open(os.path.join(os.getenv("PROJECT_ROOT"), "submissions", timestamp, f"{dataset_name}_test_soft.tsv"), "w") as f:
+                for id, soft_labels in predictions_soft_labels.items():
+                    f.write(f"{id}\t" + str(soft_labels) + "\n")
+
+            with open(os.path.join(os.getenv("PROJECT_ROOT"), "submissions", timestamp, f"{dataset_name}_test_pe.tsv"), "w") as f:
+                for id, pe in predictions_pe.items():
+                    f.write(f"{id}\t" + str(pe) + "\n")
+        else:
+            predictions = json.load(open(os.path.join(os.getenv("PROJECT_ROOT"), pred_fp), "r"))
+            predictions_soft_labels, predictions_pe = varierrnli_predictions_to_soft_labels_and_pe(predictions)
+
+            with open(os.path.join(os.getenv("PROJECT_ROOT"), "submissions", timestamp, f"{dataset_name}_test_soft.tsv"), "w") as f:
+                for id, soft_labels in predictions_soft_labels.items():
+                    f.write(f"{id}\t" + str(
+                        [list(probs.values) for _, probs in soft_labels.items()]
+                    ) + "\n")
+
+            with open(os.path.join(os.getenv("PROJECT_ROOT"), "submissions", timestamp, f"{dataset_name}_test_pe.tsv"), "w") as f:
+                for id, pe in predictions_pe.items():
+                    f.write(f"{id}\t" + str(pe) + "\n")

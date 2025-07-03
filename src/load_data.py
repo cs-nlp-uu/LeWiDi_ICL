@@ -64,23 +64,16 @@ def load_data (file_path, is_varierrnli=False, is_test=False):
         data = json.load(f)
 
     # initialize output variabiles
-        annotators_pe = list()
-        ids = list()
-        targets_soft = list()
-        targets_pe = list()
+    annotators_pe = [item["annotators"].split(",") for _, item in data.items()]
+    ids = list(data.keys())
+    targets_soft = list()
+    targets_pe = list()
+
+    if is_test:
+        return (targets_soft, targets_pe, annotators_pe, ids, data)
 
     # loop on each item
     for id_, content in data.items():
-
-        # extract id of the item
-        ids.append(id_)
-
-        # extract annotators of the item
-        annotators_pe.append(content["annotators"].split(","))
-
-        if is_test:
-            continue
-
         # extract soft label of the item and append it to the targets' soft list
         soft_label = content.get("soft_label", {})
         soft_list = list(soft_label.values())
@@ -120,3 +113,66 @@ def load_data (file_path, is_varierrnli=False, is_test=False):
             targets_pe.append(list(label_vectors.values()))
 
     return (targets_soft,targets_pe,annotators_pe,ids,data)
+
+
+def load_all_data(config, project_root):
+    """
+    Load all datasets specified in the config file.
+    input:
+        - config: config file
+        - project_root: project root
+    output:
+        - data: data for all datasets
+    """
+    for dataset_name in config['dataset_names']:
+        for key, value in config['data'][dataset_name].items():
+            config['data'][dataset_name][key] = value.replace('${PROJECT_ROOT}', project_root)
+
+    data = dict()
+
+    for dataset_name in config['dataset_names']:
+        data[dataset_name] = dict()
+        for split in ["train", "dev", "test"]:
+            is_varierrnli = (dataset_name == "VariErrNLI")
+            is_test = (split == "test")
+            file_path = config['data'][dataset_name][f"{split}_file"]
+
+            soft_labels, perspectivism, annotators_per_entry, ids, full_data = load_data(file_path, is_varierrnli=is_varierrnli, is_test=is_test)
+
+            data[dataset_name][split] = {
+                "soft_labels": soft_labels,
+                "perspectivism": perspectivism,
+                "annotators_per_entry": annotators_per_entry,
+                "ids": ids,
+                "data": full_data
+            }
+
+            print(f"Loaded {dataset_name} {split} data with {len(full_data)} examples.")
+    
+    return data
+
+def load_prompt_template(config, file_path):
+    """
+    Load the prompt template from the config file.
+    input:
+        - config: config file
+        - file_path: file path to the prompt template
+    output:
+        - data: prompt template
+    """
+    data = json.load(open(file_path, 'r'))
+
+    print(f"Load the prompt template: version {data['version']}")
+
+    for dataset_name in config['dataset_names']:
+        general = data["content"]
+        dataset_specific = data["datasets"][dataset_name]
+        introduction = general["introduction"].replace("${TASK_NAME}", dataset_specific["task_name"])
+        task_description = general["task_description"].replace("${INPUT_FORMAT}", dataset_specific["input_format"]).replace("${RESPONSE_FORMAT}", dataset_specific["response_format"]).replace("${LABEL_EXPLANATION}", dataset_specific["label_explanation"])
+
+
+        data["datasets"][dataset_name]["prompt_template"] = introduction + " " + task_description + " " + general["style"] + "\n" + general["examples"] + "\n" + general["input"]
+
+        print(f"Propmt for task {dataset_name} is like:\n {data['datasets'][dataset_name]['prompt_template']}")
+
+    return data
