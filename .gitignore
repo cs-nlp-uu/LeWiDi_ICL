@@ -7,6 +7,8 @@ evaluation/
 res/
 predictions/
 logs/
+metrics/
+submissions/
 
 ### JupyterNotebooks ###
 # gitignore template for Jupyter Notebooks
