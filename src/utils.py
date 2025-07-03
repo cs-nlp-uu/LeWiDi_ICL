@@ -6,31 +6,27 @@ import random
 import datetime
 from tqdm import tqdm
 
-def select_examples(model, test_entry, train_entries, k=15, lamb=0.7):
+def select_examples(test_emb, train_embs, train_ids, k=15, lamb=0.7):
     """
-    Select k examples from the train data for a specific test entry.
+    Select k examples from the train data for a specific test entry using precomputed embeddings.
     input:
-        - model: model to use for similarity calculation
-        - test_entry: test entry
-        - train_entries: train entries
+        - test_emb: embedding of the test entry (1D np.array)
+        - train_embs: embeddings of the train entries (2D np.array)
+        - train_ids: list of train entry IDs
         - k: number of examples to select
         - lamb: lambda parameter for MMR
     output:
         - ids: ids of the selected examples
     """
-    train_ids = list(train_entries.keys())
-    train_texts = list(train_entries.values())
-    train_vecs  = model.encode(train_texts, normalize_embeddings=True)
-    q_vec = model.encode(test_entry, normalize_embeddings=True)
-    sim   = (train_vecs * q_vec).sum(axis=1)
-    chosen, candidate_idx = [], list(range(len(train_entries)))
+    sim = (train_embs * test_emb).sum(axis=1)
+    chosen, candidate_idx = [], list(range(len(train_ids)))
     while len(chosen) < k and candidate_idx:
         if not chosen:
             idx = int(np.argmax(sim))
         else:
-            cand_vecs   = train_vecs[candidate_idx]
-            div         = cosine_similarity(cand_vecs, train_vecs[chosen]).max(axis=1)
-            mmr_scores  = lamb * sim[candidate_idx] - (1 - lamb) * div
+            cand_vecs = train_embs[candidate_idx]
+            div = cosine_similarity(cand_vecs, train_embs[chosen]).max(axis=1)
+            mmr_scores = lamb * sim[candidate_idx] - (1 - lamb) * div
             idx = candidate_idx[int(np.argmax(mmr_scores))]
         chosen.append(idx)
         candidate_idx.remove(idx)

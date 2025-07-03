@@ -6,6 +6,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 from tqdm import tqdm
 from sentence_transformers import SentenceTransformer
+import numpy as np
 
 # Add project root to sys.path
 load_dotenv()
@@ -37,25 +38,53 @@ def get_concat_text(dataset_name, text_dict):
     else:
         raise ValueError(f'Unknown dataset: {dataset_name}')
 
+# Helper functions for embedding caching
+def save_embeddings(embeddings, id2idx, out_path_prefix):
+    np.save(f'{out_path_prefix}_embeddings.npy', embeddings)
+    with open(f'{out_path_prefix}_id2idx.json', 'w') as f:
+        json.dump(id2idx, f)
+
+def load_embeddings(out_path_prefix):
+    embeddings = np.load(f'{out_path_prefix}_embeddings.npy')
+    with open(f'{out_path_prefix}_id2idx.json', 'r') as f:
+        id2idx = json.load(f)
+    return embeddings, id2idx
+
+def ensure_split_embeddings(dataset_name, split, ids, data, emb_dir):
+    out_prefix = emb_dir / f'{dataset_name}_{split}'
+    emb_file = f'{out_prefix}_embeddings.npy'
+    id2idx_file = f'{out_prefix}_id2idx.json'
+    if os.path.exists(emb_file) and os.path.exists(id2idx_file):
+        embeddings, id2idx = load_embeddings(out_prefix)
+    else:
+        texts = [get_concat_text(dataset_name, data[id_]['text']) for id_ in ids]
+        embeddings = model.encode(texts, show_progress_bar=True, batch_size=64)
+        id2idx = {id_: i for i, id_ in enumerate(ids)}
+        save_embeddings(embeddings, id2idx, out_prefix)
+    return embeddings, id2idx
+
 # Main logic
 def main():
     out_dir = project_root / 'examples'
     out_dir.mkdir(exist_ok=True)
+    emb_dir = project_root / 'embeddings'
+    emb_dir.mkdir(exist_ok=True)
     for dataset_name in config['dataset_names']:
-        if dataset_name == "MP":
+        if dataset_name != "MP":
             continue
         print(f'Processing {dataset_name}...')
         is_varierrnli = (dataset_name == 'VariErrNLI')
         # Load train split
         _, _, annotators_pe_train, ids_train, data_train = load_data(config['data'][dataset_name]['train_file'], is_varierrnli=is_varierrnli, is_test=False)
-        # Build annotator->id->concat_text for train
-        train_ann2id2text = {}
+        # Build annotator->id set for train
+        train_ann2ids = {}
         for idx, id_ in enumerate(ids_train):
-            entry = data_train[id_]
             for ann in annotators_pe_train[idx]:
-                if ann not in train_ann2id2text:
-                    train_ann2id2text[ann] = {}
-                train_ann2id2text[ann][id_] = get_concat_text(dataset_name, entry['text'])
+                if ann not in train_ann2ids:
+                    train_ann2ids[ann] = set()
+                train_ann2ids[ann].add(id_)
+        # Ensure train embeddings cached (per split, not per annotator)
+        train_embeddings, train_id2idx = ensure_split_embeddings(dataset_name, 'train', ids_train, data_train, emb_dir)
         for split in ['dev', 'test']:
             out_path = out_dir / f'{dataset_name}_{split}_cosmrr_15.json'
             if out_path.exists():
@@ -65,15 +94,19 @@ def main():
             print(f'  Split: {split}')
             is_test = (split == 'test')
             _, _, annotators_pe, ids, data = load_data(config['data'][dataset_name][f'{split}_file'], is_varierrnli=is_varierrnli, is_test=is_test)
+            # Ensure test/dev embeddings cached
+            test_embeddings, test_id2idx = ensure_split_embeddings(dataset_name, split, ids, data, emb_dir)
             result = {}
             for idx, id_ in enumerate(tqdm(ids)):
                 entry = data[id_]
+                test_emb = test_embeddings[test_id2idx[id_]]
                 for ann in annotators_pe[idx]:
                     # Only select from train entries annotated by this annotator
-                    if ann not in train_ann2id2text or len(train_ann2id2text[ann]) == 0:
+                    if ann not in train_ann2ids or len(train_ann2ids[ann]) == 0:
                         continue
-                    test_text = get_concat_text(dataset_name, entry['text'])
-                    selected_ids = select_examples(model, test_text, train_ann2id2text[ann], k=15)
+                    ann_train_ids = list(train_ann2ids[ann])
+                    ann_train_embs = np.array([train_embeddings[train_id2idx[tid]] for tid in ann_train_ids])
+                    selected_ids = select_examples(test_emb, ann_train_embs, ann_train_ids, k=15)
                     result[f'{id_}+{ann}'] = selected_ids
             with open(out_path, 'w') as f:
                 json.dump(result, f, indent=2, ensure_ascii=False)
