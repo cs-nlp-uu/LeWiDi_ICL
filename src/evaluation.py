@@ -188,12 +188,13 @@ def pe_to_soft_labels(dataset_name, predictions_pe):
         label_range = [0, 1]
     else:
         label_range = list(range(-5, 6))
-    count = {k: 0 for k in label_range}
     for k, v in predictions_pe.items():
+        count = {k: 0 for k in label_range}
         for label in v:
             count[label] += 1
         total = sum(count.values())
-        soft_labels = [count[k] / total for k in label_range]
+        count = {k: v / total for k, v in count.items()}
+        soft_labels = list(count.values())
         results[k] = soft_labels
 
     return results
@@ -291,40 +292,11 @@ def evaluate_all_datasets(preds_fp, test_mode, full_data):
     return results
 
 
-def to_submission_format(pred_fps, timestamp):
-    for dataset_name, pred_fp in pred_fps.items():
-        if dataset_name != "VariErrNLI":
-            predictions_pe = json.load(open(os.path.join(os.getenv("PROJECT_ROOT"), pred_fp), "r"))
-            predictions_soft_labels = pe_to_soft_labels(dataset_name, predictions_pe)
-
-            with open(os.path.join(os.getenv("PROJECT_ROOT"), "submissions", timestamp, f"{dataset_name}_test_soft.tsv"), "w") as f:
-                for id, soft_labels in predictions_soft_labels.items():
-                    f.write(f"{id}\t" + str(soft_labels) + "\n")
-
-            with open(os.path.join(os.getenv("PROJECT_ROOT"), "submissions", timestamp, f"{dataset_name}_test_pe.tsv"), "w") as f:
-                for id, pe in predictions_pe.items():
-                    f.write(f"{id}\t" + str(pe) + "\n")
-        else:
-            predictions = json.load(open(os.path.join(os.getenv("PROJECT_ROOT"), pred_fp), "r"))
-            predictions_soft_labels, predictions_pe = varierrnli_predictions_to_soft_labels_and_pe(predictions)
-
-            with open(os.path.join(os.getenv("PROJECT_ROOT"), "submissions", timestamp, f"{dataset_name}_test_soft.tsv"), "w") as f:
-                for id, soft_labels in predictions_soft_labels.items():
-                    f.write(f"{id}\t" + str(
-                        [list(probs.values) for _, probs in soft_labels.items()]
-                    ) + "\n")
-
-            with open(os.path.join(os.getenv("PROJECT_ROOT"), "submissions", timestamp, f"{dataset_name}_test_pe.tsv"), "w") as f:
-                for id, pe in predictions_pe.items():
-                    f.write(f"{id}\t" + str(pe) + "\n")
-
-
 def to_submission_format(pred_fps):
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     
     dir_path = Path(os.getenv("PROJECT_ROOT")) / "submissions" / timestamp
-    if not dir_path.exists():
-        dir_path.mkdir()
+    dir_path.mkdir(exist_ok=True, parents=True)
 
     for dataset_name, pred_fp in pred_fps.items():
         if dataset_name != "VariErrNLI":
@@ -345,7 +317,7 @@ def to_submission_format(pred_fps):
             with open(os.path.join(os.getenv("PROJECT_ROOT"), "submissions", timestamp, f"{dataset_name}_test_soft.tsv"), "w") as f:
                 for id, soft_labels in predictions_soft_labels.items():
                     f.write(f"{id}\t" + str(
-                        [list(probs.values) for _, probs in soft_labels.items()]
+                        [list(probs.values()) for _, probs in soft_labels.items()]
                     ) + "\n")
 
             with open(os.path.join(os.getenv("PROJECT_ROOT"), "submissions", timestamp, f"{dataset_name}_test_pe.tsv"), "w") as f:

@@ -1,9 +1,11 @@
 import numpy as np
 from sklearn.metrics.pairwise import cosine_similarity
+from sklearn.model_selection import StratifiedShuffleSplit
 import json
 import os
 import random
 import datetime
+from collections import Counter
 from tqdm import tqdm
 
 def select_examples(test_emb, train_embs, train_ids, k=15, lamb=0.7):
@@ -32,7 +34,35 @@ def select_examples(test_emb, train_embs, train_ids, k=15, lamb=0.7):
         candidate_idx.remove(idx)
     return [train_ids[i] for i in chosen]
 
-# model = sentence_transformers.SentenceTransformer('all-mpnet-base-v2')
+
+def select_examples_by_labels(train_data, annotator_id, annotator_train_ids, k, n_classes=2):
+    """
+    Select k examples with distinct labels from the train data for a specific annotator.
+    input:
+        - train_data: training data for the dataset
+        - annotator_id: ID of the annotator to select examples for
+        - annotator_train_ids: list of training IDs annotated by the annotator
+        - k: number of shots to use for in-context learning
+        - n_classes: number of distinct classes in the dataset
+    output:
+        - example_ids: list of example IDs selected for the annotator
+    """
+    n_samples = max(n_classes, k)
+    if len(annotator_train_ids) <= n_samples:
+        return random.sample(annotator_train_ids, k=min(k, len(annotator_train_ids)))
+    annotator_labels = [train_data[train_id]["annotations"][annotator_id] for train_id in annotator_train_ids]
+    c = Counter(annotator_labels)
+    idx_to_remove = [i for i, label in enumerate(annotator_labels) if c[label] < 2]
+    annotator_train_ids = [annotator_train_ids[i] for i in range(len(annotator_train_ids)) if i not in idx_to_remove]
+    annotator_labels = [annotator_labels[i] for i in range(len(annotator_labels)) if i not in idx_to_remove]
+    if len(c) == 1:
+        return random.sample(annotator_train_ids, k=min(k, len(annotator_train_ids)))
+    test_size = round((len(annotator_train_ids) - n_samples) / len(annotator_train_ids), 2)
+    sss = StratifiedShuffleSplit(n_splits=1, test_size=test_size, random_state=42)
+    example_ids = next(sss.split(annotator_train_ids, annotator_labels))[1]
+    example_ids = [annotator_train_ids[i] for i in example_ids]
+    return random.sample(example_ids, k=min(k, len(example_ids)))
+
 
 
 def example_prompt_generation(train_data, example_ids, annotator_id):
