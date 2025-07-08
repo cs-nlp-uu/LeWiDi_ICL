@@ -1,12 +1,12 @@
 {
-    "version": "1.3",
-    "note": "v1.3: type fixed; v1.2: fixed CSC response format;",
+    "version": "1.4",
+    "note": "v1.4: typos fixed, add INST; v1.2: fixed CSC response format;",
     "content": {
-        "introduction": "You are an expert in guessing my response against a ${TASK_NAME} task.",
+        "introduction": "[INST]You are an expert in guessing my response against a ${TASK_NAME} task.",
         "task_description": "Your task is to analyze and predict my response to ${INPUT_FORMAT} between <<< and >>>, and label it with ${RESPONSE_FORMAT} ${LABEL_EXPLANATION}.",
         "style": "You should reply with only the label without any additional text.",
-        "examples": "Below are some of my previous responses. You shoulad learn my reponse behaviors from them and then make the prediction. \n${EXAMPLES}",
-        "input": "<<<\n${INPUT}\n>>>"
+        "examples": "Below are some of my previous responses. You should learn my response behavior from them and then make the prediction. \n${EXAMPLES}",
+        "input": "[/INST]<<<\n${INPUT}\n>>>"
     },
     "datasets": {
         "CSC": {
@@ -29,7 +29,7 @@
         },
         "VariErrNLI": {
             "task_name": "natural language inference",
-            "input_format": "a pair of premise (context) and hypothesis (statement)",
+            "input_format": "a pair of premise and hypothesis",
             "response_format": "one or more labels from {contradiction, neutral, entailment} (use a comma to separate multiple labels)",
             "label_explanation": "to determine whether the hypothesis is true (entailment), false (contradiction), or neither (neutral) given the truth of the premise"
         }
