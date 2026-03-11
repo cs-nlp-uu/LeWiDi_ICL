@@ -359,8 +359,8 @@ if __name__ == "__main__":
 
     # CLI flags override config.yaml values
     model = args.model or config.get("model", "gpt-4o")
-    base_url = args.base_url or os.getenv("OPENAI_BASE_URL") or config.get("base_url", BASE_URL)
-    api_key = args.api_key or os.getenv("OPENAI_API_KEY") or config.get("api_key", "")
+    base_url = args.base_url or config.get("base_url", BASE_URL)
+    api_key = args.api_key or config.get("api_key", "") or API_KEY
     n_shots = args.n_shots if args.n_shots is not None else config.get("n_shots", 10)
     selection_method = args.selection_method or config.get("selection_method", "uniform")
     test_mode = args.test_mode or config.get("test_mode", "test")
