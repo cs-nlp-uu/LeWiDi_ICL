@@ -1,6 +1,138 @@
 # DeMeVa-UU at LeWiDi-2025
 
-[TOC]
+In-Context Learning (ICL) system for the **Le**arning **Wi**th **Di**sagreements 2025 shared task.
+The system predicts per-annotator labels for four annotation tasks by prompting large language models with personalised in-context examples.
+
+## Table of Contents
+
+- [Prerequisites](#prerequisites)
+- [Installation](#installation)
+- [Data Setup](#data-setup)
+- [Running Experiments](#running-experiments)
+  - [1. Pre-compute Example Selections](#1-pre-compute-example-selections)
+  - [2. Run ICL Predictions](#2-run-icl-predictions)
+  - [3. Submit Batch Requests (optional)](#3-submit-batch-requests-optional)
+- [Configuration](#configuration)
+- [Project Structure](#project-structure)
+- [Datasets](#datasets)
+- [Annotators](#annotators)
+
+## Prerequisites
+
+- Python 3.9 or later
+- An OpenAI-compatible API key (set as `OPENAI_API_KEY` environment variable)
+
+## Installation
+
+```bash
+git clone https://github.com/cs-nlp-uu/LeWiDi_ICL.git
+cd LeWiDi_ICL
+pip install -r requirements.txt
+```
+
+## Data Setup
+
+Place the LeWiDi-2025 data files under `data/data_evaluation_phase/` so the
+directory tree looks like:
+
+```
+data/data_evaluation_phase/
+├── CSC/
+│   ├── CSC_train.json
+│   ├── CSC_dev.json
+│   └── CSC_test_clear.json
+├── MP/
+│   ├── MP_train.json
+│   ├── MP_dev.json
+│   └── MP_test_clear.json
+├── Paraphrase/
+│   ├── Paraphrase_train.json
+│   ├── Paraphrase_dev.json
+│   └── Paraphrase_test_clear.json
+└── VariErrNLI/
+    ├── VariErrNLI_train.json
+    ├── VariErrNLI_dev.json
+    └── VariErrNLI_test_clear.json
+```
+
+The `data/` directory is listed in `.gitignore` and is **not** checked into version control.
+
+## Running Experiments
+
+### 1. Pre-compute Example Selections
+
+Before running ICL predictions with the `uniform` selection method you need
+to pre-compute example sets.  Pre-computed files for `cosmrr` (used by
+`topk`) are already included in `examples/`.
+
+```bash
+python scripts/select_examples_for_all.py          # defaults: k=15, seed=42
+python scripts/select_examples_for_all.py --k 10   # choose a different k
+```
+
+### 2. Run ICL Predictions
+
+```bash
+export OPENAI_API_KEY="sk-..."
+
+# Use defaults from config.yaml
+python src/run_code.py
+
+# Override any setting via CLI flags
+python src/run_code.py --model gpt-4o --n-shots 10 --selection-method uniform \
+    --test-mode dev --datasets CSC MP
+```
+
+Run `python src/run_code.py --help` for the full list of options.
+All flags fall back to the values in `config.yaml` when not specified.
+
+Predictions are saved to `predictions/` and run logs to `logs/`.
+
+### 3. Submit Batch Requests (optional)
+
+For large-scale runs you can use the OpenAI Batch API:
+
+```bash
+export OPENAI_API_KEY="sk-..."
+python src/api.py --model gpt-4o
+```
+
+## Configuration
+
+Experiment defaults live in **`config.yaml`**:
+
+| Key                | Description                                  | Default                        |
+|--------------------|----------------------------------------------|--------------------------------|
+| `model`            | LLM model name                               | `gpt-4o`                       |
+| `base_url`         | API endpoint                                 | `https://api.openai.com/v1`    |
+| `n_shots`          | Number of in-context examples                | `10`                           |
+| `selection_method` | Example selection (`random`/`topk`/`uniform`) | `uniform`                      |
+| `test_mode`        | Evaluation split (`dev`/`test`)              | `test`                         |
+| `n_entry`          | Entries to process (`-1` = all)              | `-1`                           |
+| `random_seed`      | Seed for reproducibility                     | `42`                           |
+
+Environment variables `OPENAI_API_KEY` and `OPENAI_BASE_URL` are read
+automatically; CLI flags take the highest priority.
+
+## Project Structure
+
+```
+├── config.yaml                 # Experiment configuration
+├── requirements.txt            # Python dependencies
+├── prompts/
+│   └── prompt_template.json    # Prompt templates (versioned)
+├── src/
+│   ├── run_code.py             # Main entry point – ICL predictions
+│   ├── api.py                  # OpenAI Batch API helper
+│   ├── load_data.py            # Data loading utilities
+│   ├── utils.py                # Example selection (MMR, stratified)
+│   └── evaluation.py           # Evaluation metrics
+├── scripts/
+│   └── select_examples_for_all.py  # Pre-compute example selections
+├── examples/                   # Pre-computed example ID files
+├── embeddings/                 # Cached embeddings
+└── notebooks/                  # Jupyter notebooks for exploration
+```
 
 ## Datasets
 

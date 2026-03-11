@@ -1,3 +1,4 @@
+import argparse
 import datetime
 import json
 from tqdm import tqdm
@@ -12,25 +13,36 @@ from typing import Dict, Any, List, Optional, Tuple
 
 import openai
 
+# ---------------------------------------------------------------------------
+# Resolve PROJECT_ROOT: prefer the environment variable, fall back to the
+# parent directory of *this* file (i.e. the repository root).
+# ---------------------------------------------------------------------------
+PROJECT_ROOT = os.getenv(
+    "PROJECT_ROOT",
+    str(Path(__file__).resolve().parent.parent),
+)
+os.environ["PROJECT_ROOT"] = PROJECT_ROOT
+sys.path.append(os.path.join(PROJECT_ROOT, "src"))
+
 from load_data import load_all_data, load_prompt_template
 
-PROJECT_ROOT = f"{os.environ['HOME']}/LeWiDi_ICL"
-project_root = Path(os.getenv("PROJECT_ROOT"))
-assert project_root.exists(), f"expected project root: {PROJECT_ROOT}"
-os.environ["PROJECT_ROOT"] = PROJECT_ROOT
-sys.path.append(PROJECT_ROOT)
+
+def _load_config(project_root: str) -> dict:
+    """Load config.yaml and resolve ``${PROJECT_ROOT}`` placeholders."""
+    with open(os.path.join(project_root, "config.yaml"), "r") as fh:
+        config = yaml.safe_load(fh)
+    for dataset_name in config["dataset_names"]:
+        for key, value in config["data"][dataset_name].items():
+            config["data"][dataset_name][key] = value.replace(
+                "${PROJECT_ROOT}", project_root
+            )
+    return config
 
 
-with open(os.path.join(os.getenv("PROJECT_ROOT"), 'config.yaml'), 'r') as file:
-    config = yaml.safe_load(file)
-
-for dataset_name in config['dataset_names']:
-        for key, value in config['data'][dataset_name].items():
-            config['data'][dataset_name][key] = value.replace('${PROJECT_ROOT}', os.getenv("PROJECT_ROOT"))# replace the ${PROJECT_ROOT} with the actual project root
-
-
-
-prompts = load_prompt_template(config, os.path.join(os.getenv("PROJECT_ROOT"), 'prompts/prompt_template.json'))
+# Module-level defaults kept for backward-compatible imports (e.g. api.py).
+API_KEY = os.getenv("OPENAI_API_KEY", "")
+BASE_URL = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1")
+model = "gpt-4o"
 
 
 def example_prompt_generation(train_data, example_ids, annotator_id):
@@ -323,31 +335,56 @@ def icl_to_batch_jsonl(
 
     return files_written, logs
 
-# demo test on all datasets except for MP
+def _build_parser() -> argparse.ArgumentParser:
+    """Build the CLI argument parser.  Defaults come from config.yaml."""
+    parser = argparse.ArgumentParser(
+        description="Run In-Context Learning experiments for LeWiDi-2025."
+    )
+    parser.add_argument("--model", default=None, help="Model name (default: from config.yaml)")
+    parser.add_argument("--base-url", default=None, help="API base URL (default: env OPENAI_BASE_URL or config)")
+    parser.add_argument("--api-key", default=None, help="API key (default: env OPENAI_API_KEY)")
+    parser.add_argument("--n-shots", type=int, default=None, help="Number of ICL examples (default: from config)")
+    parser.add_argument("--selection-method", choices=["random", "topk", "uniform"], default=None, help="Example selection method (default: from config)")
+    parser.add_argument("--test-mode", choices=["dev", "test"], default=None, help="Evaluation split (default: from config)")
+    parser.add_argument("--n-entry", type=int, default=None, help="Number of test entries, -1 for all (default: from config)")
+    parser.add_argument("--seed", type=int, default=None, help="Random seed (default: from config)")
+    parser.add_argument("--datasets", nargs="+", default=None, help="Datasets to run (default: all from config)")
+    return parser
 
-# model = "meta-llama/Llama-3.2-11B-Vision-Instruct"
-model = "gpt-4o"
-API_KEY = ""
-BASE_URL = "https://api.openai.com/v1"
-
-client = openai.OpenAI(
-    api_key=API_KEY,
-    base_url=BASE_URL,
-)
-# from huggingface_hub import InferenceClient
-# client = InferenceClient(
-#     provider="hf-inference",
-#     api_key=API_KEY,
-# )
-
-n_shots = 10
-# selection_method = "random"
-selection_method = "uniform"
-test_mode = "test"
-n_entry = -1
 
 if __name__ == "__main__":
-    data_all_datasets = load_all_data(config, str(project_root))
-    for dataset_name in config["dataset_names"]:
+    args = _build_parser().parse_args()
+
+    config = _load_config(PROJECT_ROOT)
+
+    # CLI flags override config.yaml values
+    model = args.model or config.get("model", "gpt-4o")
+    base_url = args.base_url or os.getenv("OPENAI_BASE_URL") or config.get("base_url", BASE_URL)
+    api_key = args.api_key or os.getenv("OPENAI_API_KEY") or config.get("api_key", "")
+    n_shots = args.n_shots if args.n_shots is not None else config.get("n_shots", 10)
+    selection_method = args.selection_method or config.get("selection_method", "uniform")
+    test_mode = args.test_mode or config.get("test_mode", "test")
+    n_entry = args.n_entry if args.n_entry is not None else config.get("n_entry", -1)
+    seed = args.seed if args.seed is not None else config.get("random_seed", 42)
+    dataset_names = args.datasets or config["dataset_names"]
+
+    random.seed(seed)
+
+    if not api_key:
+        sys.exit(
+            "Error: No API key provided. Set OPENAI_API_KEY environment variable, "
+            "pass --api-key, or add api_key to config.yaml."
+        )
+
+    client = openai.OpenAI(api_key=api_key, base_url=base_url)
+    prompts = load_prompt_template(config, os.path.join(PROJECT_ROOT, "prompts/prompt_template.json"))
+    data_all_datasets = load_all_data(config, PROJECT_ROOT)
+
+    for dataset_name in dataset_names:
         print(f"Running ICL for dataset {dataset_name}...")
-        predictions_all, logs = icl_predict(dataset_name, test_mode, data_all_datasets[dataset_name]["train"], data_all_datasets[dataset_name][test_mode], prompts, model, client, n_shots, selection_method, n_entry)
+        predictions_all, logs = icl_predict(
+            dataset_name, test_mode,
+            data_all_datasets[dataset_name]["train"],
+            data_all_datasets[dataset_name][test_mode],
+            prompts, model, client, n_shots, selection_method, n_entry,
+        )

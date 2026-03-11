@@ -1,18 +1,21 @@
+import argparse
 import os
 import sys
 import json
 import yaml
 import random
 from pathlib import Path
-# from dotenv import load_dotenv
 from tqdm import tqdm
-# from sentence_transformers import SentenceTransformer
 import numpy as np
 
-# Add project root to sys.path
-# load_dotenv()
-os.environ['PROJECT_ROOT'] = "."
-project_root = Path(os.getenv('PROJECT_ROOT'))
+# ---------------------------------------------------------------------------
+# Resolve PROJECT_ROOT: prefer the environment variable, fall back to the
+# parent directory of *this* script (i.e. the repository root).
+# ---------------------------------------------------------------------------
+_default_root = str(Path(__file__).resolve().parent.parent)
+PROJECT_ROOT = os.getenv("PROJECT_ROOT", _default_root)
+os.environ.setdefault("PROJECT_ROOT", PROJECT_ROOT)
+project_root = Path(PROJECT_ROOT)
 sys.path.append(str(project_root))
 
 from src.load_data import load_data
@@ -119,4 +122,10 @@ def main(k = 15, seed=42):
             print(f'    Saved: {out_path}')
 
 if __name__ == '__main__':
-    main() 
+    parser = argparse.ArgumentParser(
+        description="Pre-compute example selections for all datasets."
+    )
+    parser.add_argument("--k", type=int, default=15, help="Number of examples to select (default: 15)")
+    parser.add_argument("--seed", type=int, default=42, help="Random seed (default: 42)")
+    args = parser.parse_args()
+    main(k=args.k, seed=args.seed)
