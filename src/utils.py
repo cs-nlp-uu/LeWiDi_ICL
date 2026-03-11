@@ -48,15 +48,16 @@ def select_examples_by_labels(train_data, annotator_id, annotator_train_ids, k, 
         - example_ids: list of example IDs selected for the annotator
     """
     n_samples = max(n_classes, k)
-    if len(annotator_train_ids) <= n_samples:
-        return random.sample(annotator_train_ids, k=min(k, len(annotator_train_ids)))
+    random.seed(42)
+    # if len(annotator_train_ids) <= n_samples:
+    #     return random.sample(annotator_train_ids, k=min(n_samples, len(annotator_train_ids)))
     annotator_labels = [train_data[train_id]["annotations"][annotator_id] for train_id in annotator_train_ids]
     c = Counter(annotator_labels)
     idx_to_remove = [i for i, label in enumerate(annotator_labels) if c[label] < 2]
     annotator_train_ids = [annotator_train_ids[i] for i in range(len(annotator_train_ids)) if i not in idx_to_remove]
     annotator_labels = [annotator_labels[i] for i in range(len(annotator_labels)) if i not in idx_to_remove]
-    if len(c) == 1:
-        return random.sample(annotator_train_ids, k=min(k, len(annotator_train_ids)))
+    # if len(c) == 1:
+    #     return random.sample(annotator_train_ids, k=min(k, len(annotator_train_ids)))
     test_size = round((len(annotator_train_ids) - n_samples) / len(annotator_train_ids), 2)
     sss = StratifiedShuffleSplit(n_splits=1, test_size=test_size, random_state=42)
     example_ids = next(sss.split(annotator_train_ids, annotator_labels))[1]

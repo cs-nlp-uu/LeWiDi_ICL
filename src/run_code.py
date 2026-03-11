@@ -8,14 +8,18 @@ import os
 import yaml
 import numpy as np
 import re
+from typing import Dict, Any, List, Optional, Tuple
 
 import openai
 
 from load_data import load_all_data, load_prompt_template
 
-os.environ["PROJECT_ROOT"] = "/home/daniiligantev/LeWiDi_ICL"
-sys.path.append(os.getenv("PROJECT_ROOT"))
+PROJECT_ROOT = f"{os.environ['HOME']}/LeWiDi_ICL"
 project_root = Path(os.getenv("PROJECT_ROOT"))
+assert project_root.exists(), f"expected project root: {PROJECT_ROOT}"
+os.environ["PROJECT_ROOT"] = PROJECT_ROOT
+sys.path.append(PROJECT_ROOT)
+
 
 with open(os.path.join(os.getenv("PROJECT_ROOT"), 'config.yaml'), 'r') as file:
     config = yaml.safe_load(file)
@@ -93,8 +97,6 @@ def icl_predict(dataset_name, test_mode, train_data, test_data, prompt, model, c
         test_data_ids = test_data["ids"]
 
     for iteration, test_id in enumerate(tqdm(test_data_ids)):
-        if iteration <= 1350:
-            continue
         annotators = test_data["data"][test_id]["annotators"].split(",")
         predictions = list()
         for annotator in annotators:
@@ -144,15 +146,6 @@ def icl_predict(dataset_name, test_mode, train_data, test_data, prompt, model, c
 
         predictions_all[test_id] = predictions
         logs["predictions"] = predictions_all
-        if iteration % 50 == 0:
-            try:
-                os.makedirs(os.path.join(os.getenv("PROJECT_ROOT"), "logs"), exist_ok=True)
-                json.dump(logs, open(os.path.join(os.getenv("PROJECT_ROOT"), f"logs/log_icl_{dataset_name}_{test_mode}_{model.split('/')[-1]}_{n_shots}_{selection_method}_{iteration}_{timestamp}.json"), "w"), indent=4)
-
-                os.makedirs(os.path.join(os.getenv("PROJECT_ROOT"), "predictions"), exist_ok=True)
-                json.dump(predictions_all, open(os.path.join(os.getenv("PROJECT_ROOT"), f"predictions/pred_icl_{dataset_name}_{test_mode}_{model.split('/')[-1]}_{n_shots}_{selection_method}_{iteration}_{timestamp}.json"), "w"), indent=4)
-            except Exception as e:
-                print(f"Error saving logs or predictions: {e}")
 
     try:
         os.makedirs(os.path.join(os.getenv("PROJECT_ROOT"), "logs"), exist_ok=True)
@@ -164,23 +157,187 @@ def icl_predict(dataset_name, test_mode, train_data, test_data, prompt, model, c
         print(f"Error saving logs or predictions: {e}")
     return predictions_all, logs
 
+
+def icl_to_batch_jsonl(
+    dataset_name: str,
+    test_mode: str,
+    train_data: Dict[str, Any],
+    test_data: Dict[str, Any],
+    prompt: Dict[str, Any],
+    model: str,
+    client: str,
+    n_shots: int,
+    selection_method: str,
+    n_entry: int,
+    out_dir: Optional[os.PathLike] = None,
+    *,
+    endpoint_url: str = "/v1/chat/completions",
+    shard_size: int = 50_000,  # conservative shard to stay within common batch limits
+) -> Tuple[List[Path], Dict[str, Any]]:
+    """
+    Build JSONL files for the OpenAI Batch API instead of sending requests online.
+
+    Args:
+        dataset_name: Name of the dataset.
+        test_mode: "dev" or "test".
+        train_data: Training data object.
+        test_data: Dev/test data object.
+        prompt: Prompt templates/config.
+        model: Model name to request (e.g., "gpt-4o-mini").
+        n_shots: Number of in-context examples.
+        selection_method: "random", "topk", or "uniform".
+        n_entry: Number of test entries to include (-1 means all).
+        out_dir: Directory to write batch files; defaults to $PROJECT_ROOT/batch_inputs.
+        endpoint_url: Batch request endpoint (e.g., "/v1/chat/completions" or "/v1/responses").
+        shard_size: Max requests per JSONL shard file.
+
+    Returns:
+        (files_written, logs)
+        - files_written: List of JSONL paths created.
+        - logs: Dict with metadata (prompts, example IDs, manifest mapping, etc.).
+
+    Notes:
+        - Each JSONL line has:
+          {"custom_id": "...", "method": "POST", "url": endpoint_url, "body": {...}}
+        - Use the manifest to map batch results back to (test_id, annotator).
+    """
+    # --------- setup ---------
+    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    model_stub = model.split("/")[-1]
+    project_root = Path(os.getenv("PROJECT_ROOT", "."))
+    out_dir = project_root / "batch_inputs"
+    logs_dir = project_root / "logs"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    logs_dir.mkdir(parents=True, exist_ok=True)
+
+    logs: Dict[str, Any] = {
+        "datetime": timestamp,
+        "dataset_name": dataset_name,
+        "test_mode": test_mode,
+        "model": model,
+        "n_shots": n_shots,
+        "selection_method": selection_method,
+        "prompt_version": prompt["version"],
+        "prompt_template": prompt["datasets"][dataset_name]["prompt_template"],
+        "prompts": {},            # key: f"{test_id}+{annotator}" -> full rendered prompt
+        "examples_ids": {},       # key: f"{test_id}+{annotator}" -> list of example ids
+        "request_manifest": {},   # custom_id -> {"test_id":..., "annotator":...}
+        "batch_files": [],
+    }
+
+    # Select which test ids to includey
+    test_data_ids = test_data["ids"]
+
+    # --------- build requests ---------
+    requests: List[Dict[str, Any]] = []
+    examples = []
+    if selection_method == "uniform":
+        sel_path = project_root / f"examples/{dataset_name}_{test_mode}_selected_{n_shots}.json"
+        examples = json.load(sel_path.open("r"))
+    elif selection_method == "topk":
+        sel_path = project_root / f"examples/{dataset_name}_{test_mode}_cosmrr_{n_shots}.json"
+        examples = json.load(sel_path.open("r"))
+    for test_id in tqdm(test_data_ids):
+        annotators = test_data["data"][test_id]["annotators"].split(",")
+        for annotator in annotators:
+            # Select examples
+            if selection_method == "random":
+                pool = [
+                    train_data["ids"][i]
+                    for i, ann_ids in enumerate(train_data["annotators_per_entry"])
+                    if annotator in ann_ids
+                ]
+                example_ids = random.sample(pool, min(n_shots, len(pool)))
+            elif selection_method == "topk":
+                example_ids = examples[f"{test_id}+{annotator}"][:n_shots]
+            elif selection_method == "uniform":
+                example_ids = examples[f"{test_id}+{annotator}"][:n_shots]
+            else:
+                raise ValueError(f"Unknown selection method: {selection_method}")
+            if not example_ids:
+                raise ValueError(
+                    f"No examples found for annotator {annotator} in the training data."
+                )
+
+            # Render prompt
+            prompt_examples = example_prompt_generation(train_data, example_ids, annotator)
+            prompt_template = prompt["datasets"][dataset_name]["prompt_template"]
+            prompt_template = prompt_template.replace("${EXAMPLES}", prompt_examples)
+
+            input_text = "\n".join(
+                f"[{k}]: {v}" for k, v in test_data["data"][test_id]["text"].items()
+            ) + "\n[label]: \n"
+            prompt_template = prompt_template.replace("${INPUT}", input_text)
+
+            # Record logs
+            key = f"{test_id}+{annotator}"
+            logs["examples_ids"][key] = example_ids
+            logs["prompts"][key] = prompt_template
+
+            # Build one batch request line
+            custom_id = f"{dataset_name}:{test_mode}:{test_id}:{annotator}"
+            logs["request_manifest"][custom_id] = {
+                "test_id": test_id,
+                "annotator": annotator,
+            }
+
+            requests.append(
+                {
+                    "custom_id": custom_id,
+                    "method": "POST",
+                    "url": endpoint_url,  # e.g., "/v1/chat/completions" or "/v1/responses"
+                    "body": {
+                        "model": model,
+                        "messages": [{"role": "user", "content": prompt_template}],
+                        "temperature": 0.0,
+                    },
+                }
+            )
+
+    # --------- write sharded JSONL ---------
+    base = f"batch_icl_{dataset_name}_{test_mode}_{model_stub}_{n_shots}_{selection_method}_{timestamp}"
+    files_written: List[Path] = []
+
+    for shard_idx in range(0, len(requests), shard_size):
+        shard = requests[shard_idx : shard_idx + shard_size]
+        shard_path = out_dir / f"{base}_part{shard_idx // shard_size:03d}.jsonl"
+        with shard_path.open("w", encoding="utf-8") as f:
+            for req in shard:
+                f.write(json.dumps(req, ensure_ascii=False) + "\n")
+        files_written.append(shard_path)
+
+    logs["batch_files"] = [str(p) for p in files_written]
+
+    # --------- save logs & manifest ---------
+    manifest_path = out_dir / f"{base}_manifest.json"
+    with manifest_path.open("w", encoding="utf-8") as f:
+        json.dump(
+            {"request_manifest": logs["request_manifest"], "files": logs["batch_files"]},
+            f,
+            indent=2,
+        )
+
+    logs_path = Path(project_root) / "logs" / f"log_icl_batch_{base}.json"
+    with logs_path.open("w", encoding="utf-8") as f:
+        json.dump(logs, f, indent=2)
+
+    return files_written, logs
+
 # demo test on all datasets except for MP
 
-# model = "gpt-4o-mini"
 # model = "meta-llama/Llama-3.2-11B-Vision-Instruct"
 model = "gpt-4o"
-api_key = ""
-# api_key = ""
-base_url = "https://api.openai.com/v1"
+API_KEY = ""
+BASE_URL = "https://api.openai.com/v1"
 
 client = openai.OpenAI(
-    api_key=api_key,
-    base_url=base_url,
+    api_key=API_KEY,
+    base_url=BASE_URL,
 )
 # from huggingface_hub import InferenceClient
 # client = InferenceClient(
 #     provider="hf-inference",
-#     api_key=api_key,
+#     api_key=API_KEY,
 # )
 
 n_shots = 10
@@ -189,10 +346,8 @@ selection_method = "uniform"
 test_mode = "test"
 n_entry = -1
 
-data_all_datasets = load_all_data(config, str(project_root))
-
-for dataset_name in config["dataset_names"]:
-    if dataset_name not in ["MP"]:
-        continue
-    print(f"Running ICL for dataset {dataset_name}...")
-    predictions_all, logs = icl_predict(dataset_name, test_mode, data_all_datasets[dataset_name]["train"], data_all_datasets[dataset_name][test_mode], prompts, model, client, n_shots, selection_method, n_entry)
+if __name__ == "__main__":
+    data_all_datasets = load_all_data(config, str(project_root))
+    for dataset_name in config["dataset_names"]:
+        print(f"Running ICL for dataset {dataset_name}...")
+        predictions_all, logs = icl_predict(dataset_name, test_mode, data_all_datasets[dataset_name]["train"], data_all_datasets[dataset_name][test_mode], prompts, model, client, n_shots, selection_method, n_entry)
