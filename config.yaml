@@ -4,6 +4,16 @@ task_description:
   MP: irony detection
   Paraphrase: paraphrase detection
   VariErrNLI: natural language inference
+
+# Experiment settings (override with CLI flags, see --help)
+model: "gpt-4o"
+base_url: "https://api.openai.com/v1"
+n_shots: 10
+selection_method: "uniform"   # random | topk | uniform
+test_mode: "test"             # dev | test
+n_entry: -1                   # -1 = all entries
+random_seed: 42
+
 data:
   CSC:
     train_file: ${PROJECT_ROOT}/data/data_evaluation_phase/CSC/CSC_train.json

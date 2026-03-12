@@ -1,4 +1,8 @@
-sentence-transformers
-scikit-learn
-tqdm
-python-dotenv 
+numpy>=1.24
+openai>=1.0
+POT>=0.9
+pyyaml>=6.0
+scikit-learn>=1.2
+sentence-transformers>=2.2
+tqdm>=4.60
+python-dotenv>=1.0
